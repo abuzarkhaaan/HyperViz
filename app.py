@@ -145,39 +145,47 @@ def sidebar():
 
     return data
 
-def center_uploader():
-    st.write('## Upload your files here:')
+# ---------- Upload CSV (batched with st.form) ----------
+with st.form("upload_form"):
     models = dm.get_models()
-    project = st.selectbox('Please select a project:', ['New project']+list(models.keys()))
+    project = st.selectbox('Please select a project:',
+                           ['New project'] + list(models.keys()))
     project_valid = True
     if project == 'New project':
         project = st.text_input('Please enter a name for the project:')
-        project_valid = not re.search(r'[^A-Za-z0-9_\-]',project)
+        project_valid = not re.search(r'[^A-Za-z0-9_\\-]', project)
         if not project_valid:
             st.warning('Project names may only contain alphanumeric characters, _ and -')
         model = st.text_input('Please name the model:')
     else:
-        model = st.selectbox('Please select the model:', ['New model']+models[project])
+        model = st.selectbox('Please select the model:',
+                             ['New model'] + models[project])
         if model == 'New model':
             model = st.text_input('Please name the model:')
-    
-    model_valid = not re.search(r'[^A-Za-z0-9_\-]',model)
+
+    model_valid = not re.search(r'[^A-Za-z0-9_\\-]', model)
     if not model_valid:
         st.warning('Model names may only contain alphanumeric characters, _ and -')
 
-    files = st.file_uploader('Upload your .csv file(s) here. You can upload multiple files, of e.g. different GridSearch runs', accept_multiple_files=True)
+    files = st.file_uploader('Upload your .csv file(s) here. '
+                             'You can upload multiple files, e.g. different GridSearch runs',
+                             accept_multiple_files=True)
 
-    tag = st.text_input('Provide a tag for the uploaded data. This might be a date, a number or any other string:','default')
+    tag = st.text_input('Provide a tag for the uploaded data '
+                        '(date / run id / any string):', 'default')
 
-    delimiter = [';', ','][st.radio('Select the delimiter of the csv file(s):', [0, 1], format_func=lambda x: ['; - Semicolon - GridSearchCV default', ', - Comma - normal CSV'][x])]
-    decimal = ['.', ','][st.radio('Select the decimal point of the csv file(s):', [0, 1], format_func=lambda x: ['. - Dot - English', ', - Comma - German'][x])]
+    delimiter = [';', ','][st.radio(
+        'Select the delimiter of the csv file(s):', [0, 1],
+        format_func=lambda x: ['; - Semicolon (GridSearchCV default)',
+                               ', - Comma (normal CSV)'][x])]
+    decimal = ['.', ','][st.radio(
+        'Select the decimal point of the csv file(s):', [0, 1],
+        format_func=lambda x: ['. - Dot (English)',
+                               ', - Comma (German)'][x])]
 
     df = dm.read_files_to_df(files, delimiter, decimal)
 
-    mean_cols = []
-    std_cols = []
-    param_cols = []
-
+    mean_cols, std_cols, param_cols = [], [], []
     for col in df.columns:
         if col.startswith('mean_test_'):
             mean_cols.append(col)
@@ -185,47 +193,60 @@ def center_uploader():
             std_cols.append(col)
         elif col.startswith('param_'):
             param_cols.append(col)
-            
-    columns_suggestion = sorted(mean_cols)+sorted(std_cols)+sorted(param_cols)
-    if len(columns_suggestion) == 0:
-        columns_suggestion = list(df.columns)
 
-    columns_to_keep = st.multiselect('Select which columns you want to keep:', list(df.columns), columns_suggestion)
+    columns_suggestion = (sorted(mean_cols) + sorted(std_cols) + sorted(param_cols)) or list(df.columns)
+    columns_to_keep = st.multiselect('Select which columns you want to keep:',
+                                     list(df.columns), columns_suggestion)
 
-    if st.button('Upload'):
-        if not model_valid or not project_valid:
-            st.warning('Please fix above warnings!')
-        elif len(model) < 1 or len(project) < 1:
-            st.warning('Both, project name and model name must not be empty!')
-        elif len(files) < 1:
-            st.warning("You haven't uploaded any file!")
-        elif len(tag) < 1:
-            st.warning('The tag may not be empty!')
-        else:
-            with st.spinner('Processing...'):
-                dm.process_data(df, project, model, tag, columns_to_keep)
-            st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+    upload_submit = st.form_submit_button("Upload")
 
-def center_delete():
+if upload_submit:
+    if not model_valid or not project_valid:
+        st.warning('Please fix above warnings!')
+    elif len(model) < 1 or len(project) < 1:
+        st.warning('Both project name and model name must not be empty!')
+    elif len(files) < 1:
+        st.warning("You haven't uploaded any file!")
+    elif len(tag) < 1:
+        st.warning('The tag may not be empty!')
+    else:
+        with st.spinner('Processing...'):
+            dm.process_data(df, project, model, tag, columns_to_keep)
+        st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+
+
+# ---------- Delete CSV (batched with st.form) ----------
+with st.form("delete_form"):
     st.write('## Delete data')
-    st.warning(f'This action is __irreversible__! Proceed with caution.')
+    st.warning('This action is **irreversible**! Proceed with caution.')
+
     models = dm.get_models()
-    project = st.selectbox('Select the project:', list(models.keys()))
-    if st.button('Delete entire project'):
-        if not project:
-            st.warning('No project selected')
-        else:
-            dm.delete_project(project)
-            st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+    project = st.selectbox('Select the project to delete from:',
+                           list(models.keys()))
+    delete_project = st.form_submit_button("Delete entire project")
+
+    models_to_delete = []
+    delete_models = False
     if project:
-        models_to_delete = st.multiselect('Select the model(s) to delete:', models[project] if project in models else [])
-        if st.button('Delete selected models'):
-            if len(models_to_delete) == 0:
-                st.warning('No models selected')
-            else:
-                for model in models_to_delete:
-                    dm.delete_model(project, model)
-                    st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+        models_to_delete = st.multiselect('Select the model(s) to delete:',
+                                          models[project])
+        delete_models = st.form_submit_button("Delete selected models")
+
+if delete_project:
+    if not project:
+        st.warning('No project selected')
+    else:
+        dm.delete_project(project)
+        st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+
+if delete_models:
+    if len(models_to_delete) == 0:
+        st.warning('No models selected')
+    else:
+        for model in models_to_delete:
+            dm.delete_model(project, model)
+        st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+
     
 def center_data_management():
     st.write('The goal of this app is to help with the __easy visualization of hyperparameters__ of machine learning models and their __influence on the performance__ of the model. It was originally developed to display results of the sklearn GridSearchCV method, however as long your data can be represented in a __.csv format__, it can be analyzed here. __Simply upload your file and start anaylzing.__')
